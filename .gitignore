@@ -9,6 +9,9 @@ venv/
 *.db
 *.sqlite3
 
+# Uploaded files (chat attachments)
+backend/uploads/
+
 # Node
 node_modules/
 build/
@@ -21,4 +24,3 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-backend/.env

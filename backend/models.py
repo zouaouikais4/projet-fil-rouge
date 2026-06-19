@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, Float, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, Float, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -24,12 +24,13 @@ class User(Base):
     last_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
-    role = Column(String, default="student")  # "student" | "teacher"
+    role = Column(String, default="student")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     projects = relationship("Project", back_populates="owner")
     memberships = relationship("ProjectMember", back_populates="user")
     comments = relationship("Comment", back_populates="author")
     messages = relationship("Message", back_populates="sender")
+    message_reads = relationship("MessageRead", back_populates="user")
 
 
 class Project(Base):
@@ -76,7 +77,6 @@ class Task(Base):
     comments = relationship("Comment", back_populates="task", cascade="all, delete-orphan")
 
 
-# Sprint 2
 class Comment(Base):
     __tablename__ = "comments"
     id = Column(Integer, primary_key=True, index=True)
@@ -103,7 +103,6 @@ class Invitation(Base):
     invitee = relationship("User", foreign_keys=[invitee_id])
 
 
-# Sprint 3
 class Feedback(Base):
     __tablename__ = "feedbacks"
     id = Column(Integer, primary_key=True, index=True)
@@ -116,13 +115,35 @@ class Feedback(Base):
     teacher = relationship("User", foreign_keys=[teacher_id])
 
 
-# Sprint 4 — Messagerie temps réel
+# Sprint 4/5 — Messagerie temps réel
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)  # nullable car un message peut être juste une pièce jointe
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Sprint 5 — pièce jointe (optionnelle)
+    file_url = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_type = Column(String, nullable=True)   # "image" | "pdf" | "other"
+    file_size = Column(Integer, nullable=True)  # en octets
+
     project = relationship("Project", back_populates="messages")
     sender = relationship("User", back_populates="messages")
+    reads = relationship("MessageRead", back_populates="message", cascade="all, delete-orphan")
+
+
+# Sprint 5 — Accusés de lecture
+class MessageRead(Base):
+    __tablename__ = "message_reads"
+    __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_message_user_read"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    read_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    message = relationship("Message", back_populates="reads")
+    user = relationship("User", back_populates="message_reads")

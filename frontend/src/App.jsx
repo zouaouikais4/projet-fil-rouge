@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute  from './components/ProtectedRoute';
 import LoginPage       from './pages/LoginPage';
 import RegisterPage    from './pages/RegisterPage';
@@ -13,22 +14,23 @@ import ChatBubble      from './components/ChatBubble';
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login"    element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="/dashboard"                  element={<DashboardPage />} />
-            <Route path="/projects/:projectId/kanban" element={<KanbanPage />} />
-            <Route path="/invitations"                element={<InvitationsPage />} />
-            <Route path="/supervision"                element={<SupervisionPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login"    element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/dashboard"                  element={<DashboardPage />} />
+              <Route path="/projects/:projectId/kanban" element={<KanbanPage />} />
+              <Route path="/invitations"                element={<InvitationsPage />} />
+              <Route path="/supervision"                element={<SupervisionPage />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
 
-        {/* Bulle de chat flottante — visible sur toutes les pages protégées */}
-        <ChatBubble />
-      </BrowserRouter>
+          <ChatBubble />
+        </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   );
 }

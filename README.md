@@ -19,14 +19,14 @@
 
 ## 📌 Overview
 
-ProjetManager is a full-stack collaborative project management platform built as the **Fil Rouge** capstone project for the GLSI2 program at FSB Tunis. It enables students to create and manage projects, assign tasks on a Kanban board, invite teammates, and communicate in real time via a built-in chat system. Teachers can supervise all projects and leave graded feedback.
+ProjetManager is a full-stack collaborative project management platform built as the **Fil Rouge** capstone project for the GLSI2 program at FSB Tunis. It enables students to create and manage projects, assign tasks on a Kanban board, invite teammates, and communicate in real time via a built-in chat system with file sharing and read receipts. Teachers can supervise all projects and leave graded feedback.
 
 ---
 
 ## ✨ Features
 
 ### 🔐 Authentication & Security
-- JWT-based authentication with secure token storage (sessionStorage — never localStorage)
+- JWT-based authentication with session-scoped token storage (sessionStorage — never localStorage)
 - Password hashing with bcrypt
 - Role-based access control: `student` and `teacher`
 - Protected routes on both frontend and backend
@@ -49,13 +49,18 @@ ProjetManager is a full-stack collaborative project management platform built as
 - Accept or decline invitations
 - Only project admins can send invitations
 
-### 💬 Real-time Messaging
+### 💬 Real-time Messaging (Sprint 4 + 5)
 - WebSocket-powered group chat per project
 - Floating chat bubble accessible from every page
 - Message history loaded on connect
-- Unread message badge counter
-- Smart timestamps (time for today, date+time for older messages)
+- **Auto-reconnect** — recovers automatically from dropped connections (server restarts, network blips)
+- **Typing indicators** — see "Kais écrit…" live as teammates type
+- **Read receipts** — "Vu" label once every project member has seen your message
+- **File attachments** — share images and PDFs directly in chat (max 10MB), inline image previews
+- **Toast notifications** — popup alert for new messages even when the chat is closed, click to jump in
+- Unread message badge counter on the bubble icon
 - Project switcher dropdown when member of multiple projects
+- Smart timestamps (time for today, date+time for older messages)
 
 ### 👨‍🏫 Teacher Supervision
 - Teachers can view all projects across the platform
@@ -77,24 +82,27 @@ projet_sprint1/
 │   │   ├── comments.py         # Task comments
 │   │   ├── invitations.py      # Invite system
 │   │   ├── supervision.py      # Teacher endpoints
-│   │   └── messages.py         # WebSocket chat + history
+│   │   ├── messages.py         # WebSocket chat, history, read receipts
+│   │   └── uploads.py          # Chat file attachment uploads
 │   ├── auth.py                 # JWT + bcrypt helpers
-│   ├── models.py               # SQLAlchemy ORM models
+│   ├── models.py                # SQLAlchemy ORM models (incl. Message, MessageRead)
 │   ├── database.py             # SQLite engine + session
-│   ├── main.py                 # App entry point + CORS
+│   ├── main.py                 # App entry point, CORS, static file mount
 │   ├── .env                    # Secrets (not committed)
+│   ├── uploads/chat/           # Stored chat attachments (not committed)
 │   └── tests/                  # 44 pytest tests
 │
 └── frontend/                   # React 18 — Create React App
     └── src/
         ├── api/axios.js        # Axios instance + interceptors
         ├── context/
-        │   └── AuthContext.jsx # Auth state + token management
+        │   ├── AuthContext.jsx # Auth state + token management
+        │   └── ToastContext.jsx # New-message toast notifications
         ├── components/
-        │   ├── ChatBubble.jsx  # Floating real-time chat
+        │   ├── ChatBubble.jsx  # Floating chat: messages, attachments, read receipts
         │   └── ProtectedRoute.jsx
         ├── hooks/
-        │   └── useProjectChat.js # WebSocket hook
+        │   └── useProjectChat.js # WebSocket hook with reconnect + typing + uploads
         └── pages/
             ├── LoginPage.jsx
             ├── RegisterPage.jsx
@@ -112,6 +120,7 @@ projet_sprint1/
 | Database | SQLite + SQLAlchemy 2.0 |
 | Auth | JWT (python-jose) + bcrypt |
 | Real-time | WebSockets (native FastAPI) |
+| File storage | FastAPI StaticFiles (local disk) |
 | Frontend | React 18 + React Router v6 |
 | HTTP Client | Axios |
 | Testing | pytest + FastAPI TestClient (44 tests) |
@@ -159,6 +168,8 @@ npm start
 
 The app will open at **http://localhost:3000**
 
+> ⚠️ After pulling Sprint 5 changes, delete `backend/projectmanager.db` once to let the new `messages` and `message_reads` tables be created fresh.
+
 ---
 
 ## 🧪 Running Tests
@@ -198,8 +209,10 @@ Full interactive docs available at `/docs` when the server is running.
 | `POST` | `/invitations/{token}/accept` | Accept an invitation |
 | `GET` | `/supervision/projects` | Teacher: list all projects |
 | `POST` | `/supervision/projects/{id}/feedback` | Teacher: add feedback |
-| `GET` | `/projects/{id}/messages` | Load chat history |
-| `WS` | `/ws/projects/{id}?token=` | Real-time chat WebSocket |
+| `GET` | `/projects/{id}/messages` | Load chat history (with read receipts) |
+| `POST` | `/upload/chat` | Upload a chat attachment (image/PDF, max 10MB) |
+| `POST` | `/messages/{id}/read` | Mark a message as read (REST fallback) |
+| `WS` | `/ws/projects/{id}?token=` | Real-time chat: messages, typing, read receipts |
 
 ---
 
@@ -224,7 +237,7 @@ User ──< ProjectMember >── Project ──< Task ──< Comment
                               │
                               ├──< Invitation
                               ├──< Feedback
-                              └──< Message
+                              └──< Message ──< MessageRead
 ```
 
 ---

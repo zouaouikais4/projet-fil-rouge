@@ -5,21 +5,14 @@ const API_BASE = 'http://localhost:8000';
 const RECONNECT_DELAY_MS = 2000;
 const TYPING_TIMEOUT_MS = 2500;
 
-/**
- * Hook — messagerie temps réel pour un projet, avec reconnexion automatique
- * et indicateur de frappe.
- *
- * @param {number|null} projectId
- * @param {string|null} token
- */
 export function useProjectChat(projectId, token) {
   const [messages, setMessages] = useState([]);
   const [connected, setConnected] = useState(false);
-  const [typingUsers, setTypingUsers] = useState([]); // [{sender_id, sender_name}]
+  const [typingUsers, setTypingUsers] = useState([]);
 
   const ws = useRef(null);
   const reconnectTimer = useRef(null);
-  const typingTimeoutsRef = useRef({}); // { sender_id: timeoutId }
+  const typingTimeoutsRef = useRef({});
   const shouldReconnect = useRef(true);
 
   const connect = useCallback(() => {
@@ -46,7 +39,6 @@ export function useProjectChat(projectId, token) {
           if (prev.some((u) => u.sender_id === data.sender_id)) return prev;
           return [...prev, { sender_id: data.sender_id, sender_name: data.sender_name }];
         });
-        // auto-clear si pas de "stop_typing" reçu après un délai
         clearTimeout(typingTimeoutsRef.current[data.sender_id]);
         typingTimeoutsRef.current[data.sender_id] = setTimeout(() => {
           setTypingUsers((prev) => prev.filter((u) => u.sender_id !== data.sender_id));
@@ -60,7 +52,16 @@ export function useProjectChat(projectId, token) {
         return;
       }
 
-      // Message de chat normal
+      if (data.type === 'read_receipt') {
+        setMessages((prev) => prev.map((m) =>
+          m.id === data.message_id
+            ? { ...m, read_by: [...new Set([...(m.read_by || []), data.user_id])] }
+            : m
+        ));
+        return;
+      }
+
+      // Nouveau message (texte et/ou pièce jointe)
       setMessages((prev) => [...prev, data]);
     };
 
@@ -68,8 +69,6 @@ export function useProjectChat(projectId, token) {
       setConnected(false);
       if (e.code === 4001) console.error('WS : token invalide');
       if (e.code === 4003) console.error('WS : accès refusé au projet');
-
-      // Reconnexion automatique sauf fermeture volontaire (démontage / changement de projet)
       if (shouldReconnect.current) {
         reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
       }
@@ -84,7 +83,6 @@ export function useProjectChat(projectId, token) {
     shouldReconnect.current = true;
     connect();
 
-    // Charger l'historique
     fetch(`${API_BASE}/projects/${projectId}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -105,9 +103,9 @@ export function useProjectChat(projectId, token) {
     };
   }, [projectId, token, connect]);
 
-  const send = useCallback((content) => {
+  const send = useCallback((content, attachment = null) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ content }));
+      ws.current.send(JSON.stringify({ content, ...attachment }));
     }
   }, []);
 
@@ -123,5 +121,30 @@ export function useProjectChat(projectId, token) {
     }
   }, []);
 
-  return { messages, send, connected, typingUsers, sendTyping, sendStopTyping };
+  const markAsRead = useCallback((messageId) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'read', message_id: messageId }));
+    }
+  }, []);
+
+  // Upload de fichier — retourne les métadonnées à passer à send()
+  const uploadFile = useCallback(async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/upload/chat`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Échec de l\'upload');
+    }
+    return res.json(); // { file_url, file_name, file_type, file_size }
+  }, [token]);
+
+  return {
+    messages, send, connected, typingUsers,
+    sendTyping, sendStopTyping, markAsRead, uploadFile,
+  };
 }
