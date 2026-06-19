@@ -1,21 +1,86 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { useProjectChat } from '../hooks/useProjectChat';
 import api from '../api/axios';
 
 const TYPING_STOP_DELAY_MS = 1500;
+const API_BASE = 'http://localhost:8000';
 
-/* ── Sous-composant : fenêtre de chat ──────────────────────────────────────── */
-function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) {
-  const { messages, send, connected, typingUsers, sendTyping, sendStopTyping } =
-    useProjectChat(projectId, token);
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+/* ── Pièce jointe affichée dans une bulle ──────────────────────────────────── */
+function Attachment({ message }) {
+  if (!message.file_url) return null;
+  const fullUrl = `${API_BASE}${message.file_url}`;
+
+  if (message.file_type === 'image') {
+    return (
+      <a href={fullUrl} target="_blank" rel="noopener noreferrer">
+        <img src={fullUrl} alt={message.file_name} style={att.image} />
+      </a>
+    );
+  }
+
+  return (
+    <a href={fullUrl} target="_blank" rel="noopener noreferrer" style={att.fileCard}>
+      <span style={att.fileIcon}>📄</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={att.fileName}>{message.file_name}</div>
+        <div style={att.fileSize}>{formatFileSize(message.file_size)}</div>
+      </div>
+    </a>
+  );
+}
+
+const att = {
+  image: { maxWidth: '220px', maxHeight: '220px', borderRadius: '10px', display: 'block', cursor: 'pointer' },
+  fileCard: {
+    display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px',
+    background: 'rgba(0,0,0,0.04)', borderRadius: '8px', textDecoration: 'none', maxWidth: '220px',
+  },
+  fileIcon: { fontSize: '20px', flexShrink: 0 },
+  fileName: { fontSize: '12px', fontWeight: 500, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  fileSize: { fontSize: '11px', color: '#9ca3af' },
+};
+
+/* ── Fenêtre de chat ────────────────────────────────────────────────────────── */
+function ChatWindow({ projectId, projectTitle, token, currentUserId, otherMemberCount, onClose }) {
+  const {
+    messages, send, connected, typingUsers,
+    sendTyping, sendStopTyping, markAsRead, uploadFile,
+  } = useProjectChat(projectId, token);
+
   const [input, setInput] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
   const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
   const typingStopTimer = useRef(null);
+  const readMessagesRef = useRef(new Set());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typingUsers]);
+
+  useEffect(() => {
+    messages.forEach((m) => {
+      if (
+        m.sender_id !== currentUserId &&
+        m.id &&
+        !readMessagesRef.current.has(m.id) &&
+        !(m.read_by || []).includes(currentUserId)
+      ) {
+        readMessagesRef.current.add(m.id);
+        markAsRead(m.id);
+      }
+    });
+  }, [messages, currentUserId, markAsRead]);
 
   const handleChange = (e) => {
     setInput(e.target.value);
@@ -31,6 +96,26 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
     setInput('');
     clearTimeout(typingStopTimer.current);
     sendStopTyping();
+  };
+
+  const handleFilePick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const meta = await uploadFile(file);
+      send('', meta);
+    } catch (err) {
+      setUploadError(err.message);
+      setTimeout(() => setUploadError(null), 4000);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const formatTime = (iso) => {
@@ -49,9 +134,12 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
     return `${typingUsers.length} personnes écrivent…`;
   })();
 
+  const lastMineIndex = [...messages].reverse().findIndex((m) => m.sender_id === currentUserId);
+  const lastMineMsg = lastMineIndex !== -1 ? messages[messages.length - 1 - lastMineIndex] : null;
+  const lastMineSeen = lastMineMsg && (lastMineMsg.read_by || []).filter((id) => id !== currentUserId).length >= otherMemberCount && otherMemberCount > 0;
+
   return (
     <div style={w.window}>
-      {/* Header */}
       <div style={w.header}>
         <span style={w.headerTitle}>💬 {projectTitle}</span>
         <div style={w.headerRight}>
@@ -61,29 +149,38 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
         </div>
       </div>
 
-      {/* Messages */}
       <div style={w.messageList}>
         {messages.length === 0 && (
           <p style={w.empty}>Aucun message. Commencez la conversation !</p>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const isMine = m.sender_id === currentUserId;
+          const isLastMine = isMine && m.id === lastMineMsg?.id;
           return (
-            <div key={m.id} style={{ ...w.bubbleWrap, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
+            <div key={m.id ?? i} style={{ ...w.bubbleWrap, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
               {!isMine && <span style={w.senderName}>{m.sender_name}</span>}
-              <div style={{
-                ...w.bubble,
-                background: isMine ? '#6366f1' : '#e5e7eb',
-                color: isMine ? '#fff' : '#111',
-              }}>
-                {m.content}
-              </div>
-              <span style={w.time}>{formatTime(m.created_at)}</span>
+              {m.file_url && (
+                <div style={{ marginBottom: m.content ? '4px' : 0 }}>
+                  <Attachment message={m} />
+                </div>
+              )}
+              {m.content && (
+                <div style={{
+                  ...w.bubble,
+                  background: isMine ? '#6366f1' : '#e5e7eb',
+                  color: isMine ? '#fff' : '#111',
+                }}>
+                  {m.content}
+                </div>
+              )}
+              <span style={w.time}>
+                {formatTime(m.created_at)}
+                {isLastMine && lastMineSeen && <span style={w.seenLabel}> · Vu</span>}
+              </span>
             </div>
           );
         })}
 
-        {/* Indicateur de frappe */}
         {typingLabel && (
           <div style={w.typingRow}>
             <span style={w.typingDots}>
@@ -98,8 +195,26 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
+      {uploadError && <div style={w.uploadError}>{uploadError}</div>}
+      {uploading && <div style={w.uploadingBar}>Envoi du fichier…</div>}
+
       <div style={w.inputRow}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+        />
+        <button
+          onClick={handleFilePick}
+          disabled={!connected || uploading}
+          style={w.attachBtn}
+          aria-label="Joindre un fichier"
+          title="Joindre une image ou un PDF"
+        >
+          📎
+        </button>
         <input
           value={input}
           onChange={handleChange}
@@ -124,14 +239,17 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
   );
 }
 
-/* ── Composant principal : bulle flottante ─────────────────────────────────── */
+/* ── Bulle flottante ────────────────────────────────────────────────────────── */
 export default function ChatBubble() {
   const { user, token } = useAuth();
+  const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [unread, setUnread] = useState(0);
   const prevCountRef = useRef(0);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   useEffect(() => {
     if (!user || !token) return;
@@ -146,12 +264,26 @@ export default function ChatBubble() {
   }, [user, token]);
 
   const { messages } = useProjectChat(selectedProject?.id ?? null, token);
+
   useEffect(() => {
-    if (!open && messages.length > prevCountRef.current) {
-      setUnread((u) => u + (messages.length - prevCountRef.current));
+    if (messages.length > prevCountRef.current) {
+      const newOnes = messages.slice(prevCountRef.current);
+      const fromOthers = newOnes.filter((m) => m.sender_id !== user?.id);
+
+      if (fromOthers.length > 0) {
+        if (!openRef.current) {
+          setUnread((u) => u + fromOthers.length);
+        }
+        const latest = fromOthers[fromOthers.length - 1];
+        showToast({
+          title: latest.sender_name,
+          body: latest.content || (latest.file_name ? `📎 ${latest.file_name}` : 'Pièce jointe'),
+          onClick: () => setOpen(true),
+        });
+      }
     }
     prevCountRef.current = messages.length;
-  }, [messages, open]);
+  }, [messages, user, showToast]);
 
   const handleOpen = () => {
     setOpen(true);
@@ -159,6 +291,10 @@ export default function ChatBubble() {
   };
 
   if (!user || !token) return null;
+
+  const otherMemberCount = selectedProject
+    ? Math.max((selectedProject.members_count ?? 1) - 1, 1)
+    : 0;
 
   return (
     <div style={b.root}>
@@ -184,6 +320,7 @@ export default function ChatBubble() {
             projectTitle={selectedProject.title}
             token={token}
             currentUserId={user.id}
+            otherMemberCount={otherMemberCount}
             onClose={() => setOpen(false)}
           />
         </div>
@@ -232,7 +369,7 @@ const b = {
 
 const w = {
   window: {
-    width: '360px', height: '460px', display: 'flex', flexDirection: 'column',
+    width: '360px', height: '500px', display: 'flex', flexDirection: 'column',
     borderRadius: '16px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
     background: '#fff', border: '1px solid #e5e7eb', fontSize: '14px', fontFamily: 'sans-serif',
   },
@@ -250,6 +387,7 @@ const w = {
   senderName: { fontSize: '11px', color: '#6b7280', marginBottom: '2px', paddingLeft: '4px' },
   bubble: { padding: '7px 11px', borderRadius: '10px', lineHeight: 1.5, wordBreak: 'break-word', fontSize: '13px' },
   time: { fontSize: '10px', color: '#9ca3af', marginTop: '2px', paddingLeft: '4px' },
+  seenLabel: { color: '#6366f1', fontWeight: 500 },
   typingRow: { display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '4px' },
   typingDots: { display: 'flex', gap: '3px' },
   typingDot: {
@@ -257,12 +395,18 @@ const w = {
     animation: 'chatTypingBounce 1s infinite ease-in-out',
   },
   typingLabel: { fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' },
-  inputRow: { display: 'flex', gap: '8px', padding: '10px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' },
+  uploadError: { fontSize: '11px', color: '#ef4444', padding: '4px 12px', background: '#fef2f2' },
+  uploadingBar: { fontSize: '11px', color: '#6366f1', padding: '4px 12px', background: '#eef2ff' },
+  inputRow: { display: 'flex', gap: '6px', padding: '10px 12px', borderTop: '1px solid #e5e7eb', background: '#fff', alignItems: 'center' },
+  attachBtn: {
+    width: '32px', height: '32px', borderRadius: '50%', background: 'transparent',
+    border: 'none', fontSize: '16px', cursor: 'pointer', flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
   input: { flex: 1, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '20px', fontSize: '13px', outline: 'none', fontFamily: 'inherit' },
   sendBtn: { width: '36px', height: '36px', borderRadius: '50%', background: '#6366f1', color: '#fff', border: 'none', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 };
 
-// Injection ponctuelle de l'animation CSS (une seule fois)
 if (typeof document !== 'undefined' && !document.getElementById('chat-typing-keyframes')) {
   const style = document.createElement('style');
   style.id = 'chat-typing-keyframes';
