@@ -1,0 +1,25 @@
+.inv-container { max-width: 700px; margin: 0 auto; padding: 32px 24px; display: flex; flex-direction: column; gap: 24px; }
+.inv-header { display: flex; align-items: center; gap: 16px; }
+.inv-header h2 { font-size: 24px; font-weight: 700; color: #1F4E79; }
+.btn-back { padding: 8px 16px; background: #f0f4f8; color: #444; border: 1.5px solid #dde3ea; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.inv-card { background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); border-top: 4px solid #2E75B6; }
+.inv-card h3 { font-size: 16px; font-weight: 700; color: #1F4E79; margin-bottom: 18px; }
+.inv-success { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+.inv-error { background: #fdecea; color: #c0392b; border: 1px solid #f5c6cb; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+.inv-form { display: flex; flex-direction: column; gap: 14px; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-group label { font-size: 13px; font-weight: 600; color: #444; }
+.form-group input, .form-group select { padding: 10px 13px; border: 1.5px solid #dde3ea; border-radius: 8px; font-size: 14px; background: #f8fafc; outline: none; }
+.form-group input:focus, .form-group select:focus { border-color: #2E75B6; box-shadow: 0 0 0 3px rgba(46,117,182,0.12); }
+.btn-primary { align-self: flex-start; padding: 10px 24px; background: linear-gradient(135deg, #2E75B6, #1F4E79); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.inv-empty { color: #aaa; font-size: 13px; font-style: italic; text-align: center; padding: 20px 0; }
+.inv-list { display: flex; flex-direction: column; gap: 12px; }
+.inv-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: #f8fafc; border: 1.5px solid #eee; border-radius: 10px; flex-wrap: wrap; gap: 10px; }
+.inv-info { display: flex; flex-direction: column; gap: 4px; }
+.inv-project { font-size: 14px; font-weight: 700; color: #1F4E79; }
+.inv-expires { font-size: 11px; color: #aaa; }
+.inv-actions { display: flex; gap: 10px; }
+.btn-accept { padding: 8px 18px; background: #e8f5e9; color: #1b5e20; border: 1.5px solid #a5d6a7; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-accept:hover { background: #c8e6c9; }
+.btn-decline { padding: 8px 18px; background: #fdecea; color: #c0392b; border: 1.5px solid #f5c6cb; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-decline:hover { background: #f9d6d3; }
