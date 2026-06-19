@@ -3,21 +3,34 @@ import { useAuth } from '../context/AuthContext';
 import { useProjectChat } from '../hooks/useProjectChat';
 import api from '../api/axios';
 
+const TYPING_STOP_DELAY_MS = 1500;
+
 /* ── Sous-composant : fenêtre de chat ──────────────────────────────────────── */
 function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) {
-  const { messages, send, connected } = useProjectChat(projectId, token);
+  const { messages, send, connected, typingUsers, sendTyping, sendStopTyping } =
+    useProjectChat(projectId, token);
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
+  const typingStopTimer = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, typingUsers]);
+
+  const handleChange = (e) => {
+    setInput(e.target.value);
+    sendTyping();
+    clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = setTimeout(sendStopTyping, TYPING_STOP_DELAY_MS);
+  };
 
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || !connected) return;
     send(trimmed);
     setInput('');
+    clearTimeout(typingStopTimer.current);
+    sendStopTyping();
   };
 
   const formatTime = (iso) => {
@@ -30,13 +43,19 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
           ' ' + d.toLocaleTimeString('fr-TN', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const typingLabel = (() => {
+    if (typingUsers.length === 0) return null;
+    if (typingUsers.length === 1) return `${typingUsers[0].sender_name} écrit…`;
+    return `${typingUsers.length} personnes écrivent…`;
+  })();
+
   return (
     <div style={w.window}>
       {/* Header */}
       <div style={w.header}>
         <span style={w.headerTitle}>💬 {projectTitle}</span>
         <div style={w.headerRight}>
-          <span title={connected ? 'Connecté' : 'Déconnecté'}
+          <span title={connected ? 'Connecté' : 'Reconnexion…'}
                 style={{ ...w.dot, background: connected ? '#22c55e' : '#ef4444' }} />
           <button onClick={onClose} style={w.closeBtn} aria-label="Fermer">✕</button>
         </div>
@@ -63,6 +82,19 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
             </div>
           );
         })}
+
+        {/* Indicateur de frappe */}
+        {typingLabel && (
+          <div style={w.typingRow}>
+            <span style={w.typingDots}>
+              <span style={w.typingDot} />
+              <span style={{ ...w.typingDot, animationDelay: '0.15s' }} />
+              <span style={{ ...w.typingDot, animationDelay: '0.3s' }} />
+            </span>
+            <span style={w.typingLabel}>{typingLabel}</span>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -70,9 +102,9 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
       <div style={w.inputRow}>
         <input
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleChange}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
-          placeholder={connected ? 'Écrire un message…' : 'Connexion en cours…'}
+          placeholder={connected ? 'Écrire un message…' : 'Reconnexion en cours…'}
           disabled={!connected}
           style={w.input}
         />
@@ -94,14 +126,13 @@ function ChatWindow({ projectId, projectTitle, token, currentUserId, onClose }) 
 
 /* ── Composant principal : bulle flottante ─────────────────────────────────── */
 export default function ChatBubble() {
-  const { user, token } = useAuth();          // token vient du contexte, plus de localStorage
+  const { user, token } = useAuth();
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [unread, setUnread] = useState(0);
   const prevCountRef = useRef(0);
 
-  // Charger les projets de l'utilisateur connecté
   useEffect(() => {
     if (!user || !token) return;
     api.get('/projects/')
@@ -114,7 +145,6 @@ export default function ChatBubble() {
       .catch(console.error);
   }, [user, token]);
 
-  // Compteur de non-lus sur le projet sélectionné quand la bulle est fermée
   const { messages } = useProjectChat(selectedProject?.id ?? null, token);
   useEffect(() => {
     if (!open && messages.length > prevCountRef.current) {
@@ -128,15 +158,12 @@ export default function ChatBubble() {
     setUnread(0);
   };
 
-  // Ne rien afficher si pas de session
   if (!user || !token) return null;
 
   return (
     <div style={b.root}>
-      {/* Fenêtre de chat */}
       {open && selectedProject && (
         <div style={b.windowWrap}>
-          {/* Sélecteur de projet si plusieurs */}
           {projects.length > 1 && (
             <select
               value={selectedProject.id}
@@ -162,7 +189,6 @@ export default function ChatBubble() {
         </div>
       )}
 
-      {/* Bouton FAB */}
       <button
         onClick={open ? () => setOpen(false) : handleOpen}
         style={b.fab}
@@ -224,7 +250,27 @@ const w = {
   senderName: { fontSize: '11px', color: '#6b7280', marginBottom: '2px', paddingLeft: '4px' },
   bubble: { padding: '7px 11px', borderRadius: '10px', lineHeight: 1.5, wordBreak: 'break-word', fontSize: '13px' },
   time: { fontSize: '10px', color: '#9ca3af', marginTop: '2px', paddingLeft: '4px' },
+  typingRow: { display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '4px' },
+  typingDots: { display: 'flex', gap: '3px' },
+  typingDot: {
+    width: '5px', height: '5px', borderRadius: '50%', background: '#9ca3af',
+    animation: 'chatTypingBounce 1s infinite ease-in-out',
+  },
+  typingLabel: { fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' },
   inputRow: { display: 'flex', gap: '8px', padding: '10px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' },
   input: { flex: 1, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '20px', fontSize: '13px', outline: 'none', fontFamily: 'inherit' },
   sendBtn: { width: '36px', height: '36px', borderRadius: '50%', background: '#6366f1', color: '#fff', border: 'none', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
 };
+
+// Injection ponctuelle de l'animation CSS (une seule fois)
+if (typeof document !== 'undefined' && !document.getElementById('chat-typing-keyframes')) {
+  const style = document.createElement('style');
+  style.id = 'chat-typing-keyframes';
+  style.textContent = `
+    @keyframes chatTypingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-4px); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+}

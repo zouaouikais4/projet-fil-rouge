@@ -28,8 +28,10 @@ class ConnectionManager:
         if ws in connections:
             connections.remove(ws)
 
-    async def broadcast(self, project_id: int, payload: dict):
+    async def broadcast(self, project_id: int, payload: dict, exclude: WebSocket = None):
         for ws in self.active.get(project_id, []):
+            if ws is exclude:
+                continue
             try:
                 await ws.send_text(json.dumps(payload, default=str))
             except Exception:
@@ -50,20 +52,20 @@ async def websocket_chat(
 ):
     """
     Connexion : ws://localhost:8000/ws/projects/{id}?token=<JWT>
-    Le token JWT est passé en query param car les navigateurs ne permettent
-    pas d'envoyer des headers personnalisés sur une connexion WebSocket.
+
+    Messages entrants attendus (JSON) :
+      - {"content": "..."}                 → nouveau message de chat
+      - {"type": "typing"}                  → l'utilisateur est en train d'écrire
+      - {"type": "stop_typing"}             → l'utilisateur a arrêté d'écrire
     """
-    # 1. Authentification
     user = get_current_user_ws(token, db)
     if not user:
         await websocket.close(code=4001)
         return
 
-    # 2. Vérifier que l'utilisateur est membre du projet
     member = db.query(models.ProjectMember).filter_by(
         project_id=project_id, user_id=user.id
     ).first()
-    # Autoriser aussi le propriétaire du projet
     project = db.query(models.Project).filter_by(id=project_id).first()
     if not member and (not project or project.owner_id != user.id):
         await websocket.close(code=4003)
@@ -74,11 +76,22 @@ async def websocket_chat(
         while True:
             data = await websocket.receive_text()
             body = json.loads(data)
+
+            # ── Indicateur de frappe ────────────────────────────────────────
+            event_type = body.get("type")
+            if event_type in ("typing", "stop_typing"):
+                await manager.broadcast(project_id, {
+                    "type": event_type,
+                    "sender_id": user.id,
+                    "sender_name": f"{user.first_name} {user.last_name}",
+                }, exclude=websocket)
+                continue
+
+            # ── Nouveau message ─────────────────────────────────────────────
             content = body.get("content", "").strip()
             if not content:
                 continue
 
-            # 3. Persister en base
             msg = models.Message(
                 project_id=project_id,
                 user_id=user.id,
@@ -88,8 +101,8 @@ async def websocket_chat(
             db.commit()
             db.refresh(msg)
 
-            # 4. Broadcaster à tous les membres connectés
             await manager.broadcast(project_id, {
+                "type": "message",
                 "id": msg.id,
                 "content": msg.content,
                 "sender_id": user.id,
@@ -110,7 +123,6 @@ def get_messages(
     current_user: models.User = Depends(get_current_user),
 ):
     """Retourne l'historique des messages d'un projet (du plus ancien au plus récent)."""
-    # Vérifier accès
     member = db.query(models.ProjectMember).filter_by(
         project_id=project_id, user_id=current_user.id
     ).first()
